@@ -4,31 +4,63 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
-from collections import OrderedDict
 import os
 import tarfile
+import typing
+from collections import OrderedDict
+from typing import cast, IO
+
 import six
 
 from . import errors
 from .base import FS
 from .compress import write_tar
 from .enums import ResourceType
+from .errors import IllegalBackReference, NoURL
 from .info import Info
 from .iotools import RawWrapper
 from .opener import open_fs
-from .path import dirname, relpath, basename, isbase, parts, frombase
-from .wrapfs import WrapFS
 from .permissions import Permissions
+from ._url_tools import url_quote
+from .path import relpath, basename, isbase, normpath, parts, frombase
+from .wrapfs import WrapFS
 
-__all__ = ['TarFS', 'WriteTarFS', 'ReadTarFS']
+if typing.TYPE_CHECKING:
+    from tarfile import TarInfo
+    from typing import (
+        Any,
+        BinaryIO,
+        Collection,
+        Dict,
+        List,
+        Optional,
+        Text,
+        Tuple,
+        Union,
+    )
+    from .info import RawInfo
+    from .subfs import SubFS
+
+    T = typing.TypeVar("T", bound="ReadTarFS")
+
+
+__all__ = ["TarFS", "WriteTarFS", "ReadTarFS"]
 
 
 if six.PY2:
+
     def _get_member_info(member, encoding):
+        # type: (TarInfo, Text) -> Dict[Text, object]
         return member.get_info(encoding, None)
+
+
 else:
+
     def _get_member_info(member, encoding):
-        return member.get_info()
+        # type: (TarInfo, Text) -> Dict[Text, object]
+        # NOTE(@althonos): TarInfo.get_info is neither in the doc nor
+        #     in the `tarfile` stub, and yet it exists and is public !
+        return member.get_info()  # type: ignore
 
 
 class TarFS(WrapFS):
@@ -45,7 +77,7 @@ class TarFS(WrapFS):
     Here's how you might extract and print a readme from a tar file::
 
         with TarFS('foo.tar.gz') as tar_fs:
-            readme = tar_fs.gettext('readme.txt')
+            readme = tar_fs.readtext('readme.txt')
 
     If you open the TarFS with ``write`` set to `True`, then the TarFS
     will be a empty temporary filesystem. Any files / directories you
@@ -57,41 +89,43 @@ class TarFS(WrapFS):
     file::
 
         with TarFS('foo.tar.xz', write=True) as new_tar:
-            new_tar.settext(
+            new_tar.writetext(
                 'readme.txt',
                 'This tar file was written by PyFilesystem'
             )
 
     Arguments:
         file (str or io.IOBase): An OS filename, or an open file handle.
-        write (bool, optional): Set to `True` to write a new tar file,
-            or use default (`False`) to read an existing tar file.
+        write (bool): Set to `True` to write a new tar file, or
+            use default (`False`) to read an existing tar file.
         compression (str, optional): Compression to use (one of the formats
             supported by `tarfile`: ``xz``, ``gz``, ``bz2``, or `None`).
-        temp_fs (str, optional): An FS URL for the temporary
-            filesystem used to store data prior to tarring.
+        temp_fs (str): An FS URL for the temporary filesystem
+            used to store data prior to tarring.
 
     """
 
     _compression_formats = {
-        #FMT    #UNIX      #MSDOS
-        'xz': ('.tar.xz', '.txz'),
-        'bz2': ('.tar.bz2', '.tbz'),
-        'gz': ('.tar.gz', '.tgz'),
+        # FMT    #UNIX      #MSDOS
+        "xz": (".tar.xz", ".txz"),
+        "bz2": (".tar.bz2", ".tbz"),
+        "gz": (".tar.gz", ".tgz"),
     }
 
-    def __new__(cls,
-                file,
-                write=False,
-                compression=None,
-                encoding="utf-8",
-                temp_fs="temp://__tartemp__"):
-
+    def __new__(
+        cls,
+        file,  # type: Union[Text, BinaryIO]
+        write=False,  # type: bool
+        compression=None,  # type: Optional[Text]
+        encoding="utf-8",  # type: Text
+        temp_fs="temp://__tartemp__",  # type: Text
+    ):
+        # type: (...) -> FS
         if isinstance(file, (six.text_type, six.binary_type)):
             file = os.path.expanduser(file)
-            filename = file
+            filename = file  # type: Text
         else:
-            filename = getattr(file, 'name', '')
+            filename = getattr(file, "name", "")
 
         if write and compression is None:
             compression = None
@@ -101,12 +135,24 @@ class TarFS(WrapFS):
                     break
 
         if write:
-            return WriteTarFS(file,
-                              compression=compression,
-                              encoding=encoding,
-                              temp_fs=temp_fs)
+            return WriteTarFS(
+                file, compression=compression, encoding=encoding, temp_fs=temp_fs
+            )
         else:
             return ReadTarFS(file, encoding=encoding)
+
+    if typing.TYPE_CHECKING:
+
+        def __init__(
+            self,
+            file,  # type: Union[Text, BinaryIO]
+            write=False,  # type: bool
+            compression=None,  # type: Optional[Text]
+            encoding="utf-8",  # type: Text
+            temp_fs="temp://__tartemp__",  # type: Text
+        ):
+            # type: (...) -> None
+            pass
 
 
 @six.python_2_unicode_compatible
@@ -114,38 +160,41 @@ class WriteTarFS(WrapFS):
     """A writable tar file.
     """
 
-    def __init__(self,
-                 file,
-                 compression=None,
-                 encoding="utf-8",
-                 temp_fs="temp://__tartemp__"):
-        self._file = file
+    def __init__(
+        self,
+        file,  # type: Union[Text, BinaryIO]
+        compression=None,  # type: Optional[Text]
+        encoding="utf-8",  # type: Text
+        temp_fs="temp://__tartemp__",  # type: Text
+    ):
+        # type: (...) -> None
+        self._file = file  # type: Union[Text, BinaryIO]
         self.compression = compression
         self.encoding = encoding
         self._temp_fs_url = temp_fs
         self._temp_fs = open_fs(temp_fs)
-        self._meta = self._temp_fs.getmeta().copy()
+        self._meta = dict(self._temp_fs.getmeta())  # type: ignore
         super(WriteTarFS, self).__init__(self._temp_fs)
 
     def __repr__(self):
+        # type: () -> Text
         t = "WriteTarFS({!r}, compression={!r}, encoding={!r}, temp_fs={!r})"
-        return t.format(
-            self._file,
-            self.compression,
-            self.encoding,
-            self._temp_fs_url
-        )
+        return t.format(self._file, self.compression, self.encoding, self._temp_fs_url)
 
     def __str__(self):
+        # type: () -> Text
         return "<TarFS-write '{}'>".format(self._file)
 
     def delegate_path(self, path):
+        # type: (Text) -> Tuple[FS, Text]
         return self._temp_fs, path
 
     def delegate_fs(self):
+        # type: () -> FS
         return self._temp_fs
 
     def close(self):
+        # type: () -> None
         if not self.isclosed():
             try:
                 self.write_tar()
@@ -153,7 +202,13 @@ class WriteTarFS(WrapFS):
                 self._temp_fs.close()
         super(WriteTarFS, self).close()
 
-    def write_tar(self, file=None, compression=None, encoding=None):
+    def write_tar(
+        self,
+        file=None,  # type: Union[Text, BinaryIO, None]
+        compression=None,  # type: Optional[Text]
+        encoding=None,  # type: Optional[Text]
+    ):
+        # type: (...) -> None
         """Write tar to a file.
 
         Arguments:
@@ -173,7 +228,7 @@ class WriteTarFS(WrapFS):
                 self._temp_fs,
                 file or self._file,
                 compression=compression or self.compression,
-                encoding=encoding or self.encoding
+                encoding=encoding or self.encoding,
             )
 
 
@@ -183,13 +238,13 @@ class ReadTarFS(FS):
     """
 
     _meta = {
-        'case_insensitive': True,
-        'network': False,
-        'read_only': True,
-        'supports_rename': False,
-        'thread_safe': True,
-        'unicode_paths': True,
-        'virtual': False,
+        "case_insensitive": True,
+        "network": False,
+        "read_only": True,
+        "supports_rename": False,
+        "thread_safe": True,
+        "unicode_paths": True,
+        "virtual": False,
     }
 
     _typemap = type_map = {
@@ -205,59 +260,84 @@ class ReadTarFS(FS):
     }
 
     @errors.CreateFailed.catch_all
-    def __init__(self, file, encoding='utf-8'):
+    def __init__(self, file, encoding="utf-8"):
+        # type: (Union[Text, BinaryIO], Text) -> None
         super(ReadTarFS, self).__init__()
         self._file = file
         self.encoding = encoding
-        if hasattr(file, 'read'):
-            self._tar = tarfile.open(fileobj=file, mode='r')
+        if isinstance(file, (six.text_type, six.binary_type)):
+            self._tar = tarfile.open(file, mode="r")
         else:
-            self._tar = tarfile.open(file, mode='r')
+            self._tar = tarfile.open(fileobj=file, mode="r")
 
-        self._directory = OrderedDict(
-            (relpath(self._decode(info.name)).rstrip('/'), info)
-            for info in self._tar
-        )
+        self._directory_cache = None
+
+    @property
+    def _directory_entries(self):
+        """Lazy directory cache."""
+        if self._directory_cache is None:
+            _decode = self._decode
+            _directory_entries = (
+                (_decode(info.name).strip("/"), info) for info in self._tar
+            )
+
+            def _list_tar():
+                for name, info in _directory_entries:
+                    try:
+                        _name = normpath(name)
+                    except IllegalBackReference:
+                        # Back references outside root, must be up to no good.
+                        pass
+                    else:
+                        if _name:
+                            yield _name, info
+
+            self._directory_cache = OrderedDict(_list_tar())
+        return self._directory_cache
 
     def __repr__(self):
+        # type: () -> Text
         return "ReadTarFS({!r})".format(self._file)
 
     def __str__(self):
+        # type: () -> Text
         return "<TarFS '{}'>".format(self._file)
 
-    def _encode(self, s):
-        return(
-            s.encode(self.encoding)
-            if six.PY2 else
-            s
-        )
+    if six.PY2:
 
-    def _decode(self, s):
-        return(
-            s.decode(self.encoding)
-            if six.PY2 else
-            s
-        )
+        def _encode(self, s):
+            # type: (Text) -> str
+            return s.encode(self.encoding)
+
+        def _decode(self, s):
+            # type: (str) -> Text
+            return s.decode(self.encoding)
+
+    else:
+
+        def _encode(self, s):
+            # type: (Text) -> str
+            return s
+
+        def _decode(self, s):
+            # type: (str) -> Text
+            return s
 
     def getinfo(self, path, namespaces=None):
+        # type: (Text, Optional[Collection[Text]]) -> Info
         _path = relpath(self.validatepath(path))
         namespaces = namespaces or ()
-        raw_info = {}
+        raw_info = {}  # type: Dict[Text, Dict[Text, object]]
 
         if not _path:
-            raw_info['basic'] = {
-                "name": "",
-                "is_dir": True,
-            }
-            if 'details' in namespaces:
-                raw_info['details'] = {
-                    "type": int(ResourceType.directory)
-                }
+            raw_info["basic"] = {"name": "", "is_dir": True}
+            if "details" in namespaces:
+                raw_info["details"] = {"type": int(ResourceType.directory)}
 
         else:
             try:
                 implicit = False
-                member = self._tar.getmember(self._encode(_path))
+                member = self._directory_entries[_path]
             except KeyError:
                 if not self.isdir(_path):
                     raise errors.ResourceNotFound(path)
@@ -273,7 +353,7 @@ class ReadTarFS(FS):
             if "details" in namespaces:
                 raw_info["details"] = {
                     "size": member.size,
-                    "type": int(self.type_map[member.type])
+                    "type": int(self.type_map[member.type]),
                 }
                 if not implicit:
                     raw_info["details"]["modified"] = member.mtime
@@ -287,99 +367,127 @@ class ReadTarFS(FS):
                 }
             if "tar" in namespaces and not implicit:
                 raw_info["tar"] = _get_member_info(member, self.encoding)
-                raw_info["tar"].update({
-                    k.replace('is', 'is_'):getattr(member, k)()
-                    for k in dir(member)
-                    if k.startswith('is')
-                })
+                raw_info["tar"].update(
+                    {
+                        k.replace("is", "is_"): getattr(member, k)()
+                        for k in dir(member)
+                        if k.startswith("is")
+                    }
+                )
 
         return Info(raw_info)
 
     def isdir(self, path):
         _path = relpath(self.validatepath(path))
         try:
-            return self._directory[_path].isdir()
+            return self._directory_entries[_path].isdir()
         except KeyError:
-            return any(isbase(_path, name) for name in self._directory)
+            return any(isbase(_path, name) for name in self._directory_entries)
 
     def isfile(self, path):
         _path = relpath(self.validatepath(path))
         try:
-            return self._directory[_path].isfile()
+            return self._directory_entries[_path].isfile()
         except KeyError:
             return False
 
     def setinfo(self, path, info):
+        # type: (Text, RawInfo) -> None
         self.check()
         raise errors.ResourceReadOnly(path)
 
     def listdir(self, path):
+        # type: (Text) -> List[Text]
         _path = relpath(self.validatepath(path))
 
         if not self.gettype(path) is ResourceType.directory:
             raise errors.DirectoryExpected(path)
 
-        children = (frombase(_path, n) for n in self._directory if isbase(_path, n))
+        children = (
+            frombase(_path, n) for n in self._directory_entries if isbase(_path, n)
+        )
         content = (parts(child)[1] for child in children if relpath(child))
         return list(OrderedDict.fromkeys(content))
 
-    def makedir(self, path, permissions=None, recreate=False):
+    def makedir(
+        self,  # type: T
+        path,  # type: Text
+        permissions=None,  # type: Optional[Permissions]
+        recreate=False,  # type: bool
+    ):
+        # type: (...) -> SubFS[T]
         self.check()
         raise errors.ResourceReadOnly(path)
 
     def openbin(self, path, mode="r", buffering=-1, **options):
+        # type: (Text, Text, int, **Any) -> BinaryIO
         _path = relpath(self.validatepath(path))
 
-        if 'w' in mode or '+' in mode or 'a' in mode:
+        if "w" in mode or "+" in mode or "a" in mode:
             raise errors.ResourceReadOnly(path)
 
         try:
-            member = self._tar.getmember(self._encode(_path))
+            member = self._directory_entries[_path]
         except KeyError:
             six.raise_from(errors.ResourceNotFound(path), None)
 
         if not member.isfile():
             raise errors.FileExpected(path)
 
-        rw = RawWrapper(self._tar.extractfile(member))
+        rw = RawWrapper(cast(IO, self._tar.extractfile(member)))
 
-        if six.PY2: # Patch nonexistent file.flush in Python2
+        if six.PY2:  # Patch nonexistent file.flush in Python2
+
             def _flush():
                 pass
+
             rw.flush = _flush
 
-        return rw
+        return rw  # type: ignore
 
     def remove(self, path):
+        # type: (Text) -> None
         self.check()
         raise errors.ResourceReadOnly(path)
 
     def removedir(self, path):
+        # type: (Text) -> None
         self.check()
         raise errors.ResourceReadOnly(path)
 
     def close(self):
+        # type: () -> None
         super(ReadTarFS, self).close()
-        self._tar.close()
+        if hasattr(self, "_tar"):
+            self._tar.close()
 
     def isclosed(self):
-        return self._tar.closed
+        # type: () -> bool
+        return self._tar.closed  # type: ignore
+
+    def geturl(self, path, purpose="download"):
+        # type: (Text, Text) -> Text
+        if purpose == "fs" and isinstance(self._file, six.string_types):
+            quoted_file = url_quote(self._file)
+            quoted_path = url_quote(path)
+            return "tar://{}!/{}".format(quoted_file, quoted_path)
+        else:
+            raise NoURL(path, purpose)
 
 
-if __name__ == "__main__":  # pragma: nocover
+if __name__ == "__main__":  # pragma: no cover
     from fs.tree import render
-    from fs.opener import open_fs
 
-    with TarFS('tests.tar') as tar_fs:
-        print(tar_fs.listdir('/'))
-        print(tar_fs.listdir('/tests/'))
-        print(tar_fs.gettext('tests/ttt/settings.ini'))
+    with TarFS("tests.tar") as tar_fs:
+        print(tar_fs.listdir("/"))
+        print(tar_fs.listdir("/tests/"))
+        print(tar_fs.readtext("tests/ttt/settings.ini"))
         render(tar_fs)
         print(tar_fs)
         print(repr(tar_fs))
 
     with TarFS("TarFS.tar", write=True) as tar_fs:
-        tar_fs.makedirs('foo/bar')
-        tar_fs.settext('foo/bar/baz.txt', 'Hello, World')
+        tar_fs.makedirs("foo/bar")
+        tar_fs.writetext("foo/bar/baz.txt", "Hello, World")
         print(tar_fs)
         print(repr(tar_fs))

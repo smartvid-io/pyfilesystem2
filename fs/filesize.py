@@ -14,22 +14,28 @@ See Also:
 from __future__ import division
 from __future__ import unicode_literals
 
-__all__ = ['traditional', 'decimal', 'binary']
+import typing
+
+if typing.TYPE_CHECKING:
+    from typing import Iterable, SupportsInt, Text
+
+
+__all__ = ["traditional", "decimal", "binary"]
 
 
 def _to_str(size, suffixes, base):
+    # type: (SupportsInt, Iterable[Text], int) -> Text
     try:
         size = int(size)
     except ValueError:
-        raise TypeError(
-            "filesize requires a numeric value, not {!r}".format(size)
-        )
+        raise TypeError("filesize requires a numeric value, not {!r}".format(size))
     if size == 1:
-        return '1 byte'
+        return "1 byte"
     elif size < base:
-        return '{:,} bytes'.format(size)
+        return "{:,} bytes".format(size)
 
-    for i, suffix in enumerate(suffixes, 2):
+    # TODO (dargueta): Don't rely on unit or suffix being defined in the loop.
+    for i, suffix in enumerate(suffixes, 2):  # noqa: B007
         unit = base ** i
         if size < unit:
             break
@@ -37,6 +43,7 @@ def _to_str(size, suffixes, base):
 
 
 def traditional(size):
+    # type: (SupportsInt) -> Text
     """Convert a filesize in to a string (powers of 1024, JDEC prefixes).
 
     In this convention, ``1024 B = 1 KB``.
@@ -58,14 +65,11 @@ def traditional(size):
         '29.3 KB'
 
     """
-    return _to_str(
-        size,
-        ('KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'),
-        1024
-    )
+    return _to_str(size, ("KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"), 1024)
 
 
 def binary(size):
+    # type: (SupportsInt) -> Text
     """Convert a filesize in to a string (powers of 1024, IEC prefixes).
 
     In this convention, ``1024 B = 1 KiB``.
@@ -87,14 +91,11 @@ def binary(size):
         '29.3 KiB'
 
     """
-    return _to_str(
-        size,
-        ('KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'),
-        1024
-    )
+    return _to_str(size, ("KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"), 1024)
 
 
 def decimal(size):
+    # type: (SupportsInt) -> Text
     """Convert a filesize in to a string (powers of 1000, SI prefixes).
 
     In this convention, ``1000 B = 1 kB``.
@@ -115,8 +116,4 @@ def decimal(size):
         '30.0 kB'
 
     """
-    return _to_str(
-        size,
-        ('kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'),
-        1000
-    )
+    return _to_str(size, ("kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"), 1000)

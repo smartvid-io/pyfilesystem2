@@ -13,14 +13,17 @@ Contents:
 
    introduction.rst
    guide.rst
+
    concepts.rst
    info.rst
    openers.rst
    walking.rst
+   globbing.rst
    builtin.rst
    implementers.rst
    extension.rst
    external.rst
+   interface.rst
    reference.rst
 
 

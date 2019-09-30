@@ -4,7 +4,7 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
-import io
+import typing
 
 from . import errors
 from .errors import DirectoryNotEmpty
@@ -14,8 +14,13 @@ from .path import dirname
 from .path import normpath
 from .path import recursepath
 
+if typing.TYPE_CHECKING:
+    from typing import IO, List, Optional, Text
+    from .base import FS
+
 
 def remove_empty(fs, path):
+    # type: (FS, Text) -> None
     """Remove all empty parents.
 
     Arguments:
@@ -25,7 +30,7 @@ def remove_empty(fs, path):
     """
     path = abspath(normpath(path))
     try:
-        while path not in ('', '/'):
+        while path not in ("", "/"):
             fs.removedir(path)
             path = dirname(path)
     except DirectoryNotEmpty:
@@ -33,24 +38,26 @@ def remove_empty(fs, path):
 
 
 def copy_file_data(src_file, dst_file, chunk_size=None):
+    # type: (IO, IO, Optional[int]) -> None
     """Copy data from one file object to another.
 
     Arguments:
         src_file (io.IOBase): File open for reading.
         dst_file (io.IOBase): File open for writing.
-        chunk_size (int, optional): Number of bytes to copy at
+        chunk_size (int): Number of bytes to copy at
             a time (or `None` to use sensible default).
 
     """
-    chunk_size = chunk_size or io.DEFAULT_BUFFER_SIZE
+    _chunk_size = 1024 * 1024 if chunk_size is None else chunk_size
     read = src_file.read
     write = dst_file.write
     # The 'or None' is so that it works with binary and text files
-    for chunk in iter(lambda: read(chunk_size) or None, None):
+    for chunk in iter(lambda: read(_chunk_size) or None, None):
         write(chunk)
 
 
 def get_intermediate_dirs(fs, dir_path):
+    # type: (FS, Text) -> List[Text]
     """Get a list of non-existing intermediate directories.
 
     Arguments:
@@ -61,7 +68,7 @@ def get_intermediate_dirs(fs, dir_path):
         list: A list of non-existing paths.
 
     Raises:
-        `fs.errors.DirectoryExpected`: If a path component
+        ~fs.errors.DirectoryExpected: If a path component
             references a file and not a directory.
 
     """
@@ -77,3 +84,17 @@ def get_intermediate_dirs(fs, dir_path):
                     break
                 raise errors.DirectoryExpected(dir_path)
     return intermediates[::-1][:-1]
+
+
+def is_thread_safe(*filesystems):
+    # type: (FS) -> bool
+    """Check if all filesystems are thread-safe.
+
+    Arguments:
+        filesystems (FS): Filesystems instances to check.
+
+    Returns:
+        bool: if all filesystems are thread safe.
+
+    """
+    return all(fs.getmeta().get("thread_safe", False) for fs in filesystems)

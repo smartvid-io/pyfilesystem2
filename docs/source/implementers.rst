@@ -54,6 +54,13 @@ You may also want to override some of the methods in the test suite for more tar
 .. autoclass:: fs.test.FSTestCases
     :members:
 
+.. note::
+
+    As of version 2.4.11 this project uses `pytest <https://pytest.org/en/latest/>`_ to run its tests.
+    While it's completely compatible with ``unittest``-style tests, it's much more powerful and
+    feature-rich. We suggest you take advantage of it and its plugins in new tests you write, rather
+    than sticking to strict ``unittest`` features. For benefits and limitations, see `here <https://pytest.org/en/latest/unittest.html>`_.
+
 
 .. _essential-methods:
 
@@ -90,36 +97,39 @@ In the general case, it is a good idea to look at how these methods are implemen
 * :meth:`~fs.base.FS.copydir`
 * :meth:`~fs.base.FS.create`
 * :meth:`~fs.base.FS.desc`
+* :meth:`~fs.base.FS.download`
 * :meth:`~fs.base.FS.exists`
 * :meth:`~fs.base.FS.filterdir`
-* :meth:`~fs.base.FS.getbytes`
-* :meth:`~fs.base.FS.getfile`
 * :meth:`~fs.base.FS.getmeta`
+* :meth:`~fs.base.FS.getospath`
 * :meth:`~fs.base.FS.getsize`
 * :meth:`~fs.base.FS.getsyspath`
-* :meth:`~fs.base.FS.gettext`
 * :meth:`~fs.base.FS.gettype`
 * :meth:`~fs.base.FS.geturl`
 * :meth:`~fs.base.FS.hassyspath`
 * :meth:`~fs.base.FS.hasurl`
 * :meth:`~fs.base.FS.isclosed`
 * :meth:`~fs.base.FS.isempty`
+* :meth:`~fs.base.FS.isdir`
 * :meth:`~fs.base.FS.isfile`
+* :meth:`~fs.base.FS.islink`
 * :meth:`~fs.base.FS.lock`
 * :meth:`~fs.base.FS.makedirs`
 * :meth:`~fs.base.FS.move`
 * :meth:`~fs.base.FS.movedir`
 * :meth:`~fs.base.FS.open`
 * :meth:`~fs.base.FS.opendir`
+* :meth:`~fs.base.FS.readbytes`
+* :meth:`~fs.base.FS.readtext`
 * :meth:`~fs.base.FS.removetree`
 * :meth:`~fs.base.FS.scandir`
-* :meth:`~fs.base.FS.setbin`
-* :meth:`~fs.base.FS.setbytes`
-* :meth:`~fs.base.FS.setfile`
-* :meth:`~fs.base.FS.settext`
 * :meth:`~fs.base.FS.settimes`
 * :meth:`~fs.base.FS.touch`
+* :meth:`~fs.base.FS.upload`
 * :meth:`~fs.base.FS.validatepath`
+* :meth:`~fs.base.FS.writebytes`
+* :meth:`~fs.base.FS.writefile`
+* :meth:`~fs.base.FS.writetext`
 
 .. _helper-methods:
 
@@ -130,8 +140,9 @@ These methods SHOULD NOT be implemented.
 
 Implementing these is highly unlikely to be worthwhile.
 
+* :meth:`~fs.base.FS.check`
 * :meth:`~fs.base.FS.getbasic`
 * :meth:`~fs.base.FS.getdetails`
-* :meth:`~fs.base.FS.check`
+* :meth:`~fs.base.FS.hash`
 * :meth:`~fs.base.FS.match`
 * :meth:`~fs.base.FS.tree`

@@ -1,17 +1,29 @@
+dist: xenial
+sudo: false
 language: python
 
 python:
   - "2.7"
-  - "3.3"
   - "3.4"
   - "3.5"
   - "3.6"
+  - "3.7"
+  - "3.8-dev"
+# TODO (dargueta): Enable these once we figure out FTP timing issues in PyPy tests
+#  - 'pypy'
+#  - 'pypy3.5-7.0'
 
-os:
-  - linux
+matrix:
+  include:
+    - name: "Type checking"
+      python: "3.7"
+      env: TOXENV=typecheck
+    - name: 'Lint'
+      python: '3.7'
+      env: TOXENV=lint
 
 before_install:
-  - pip install setuptools pip -U
+  - pip install -U tox tox-travis
   - pip --version
   - pip install -r testrequirements.txt
   - pip freeze
@@ -23,5 +35,4 @@ after_success:
   - coveralls
 
 # command to run tests
-script:
-  - nosetests -v --with-coverage --cover-package=fs tests
+script: tox

@@ -6,48 +6,93 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import unicode_literals
 
+import collections
 import contextlib
-import six
+import typing
+
 import pkg_resources
 
 from .base import Opener
 from .errors import UnsupportedProtocol, EntryPointError
 from .parse import parse_fs_url
 
+if typing.TYPE_CHECKING:
+    from typing import (
+        Callable,
+        Dict,
+        Iterator,
+        List,
+        Text,
+        Type,
+        Tuple,
+        Union,
+    )
+    from ..base import FS
+
 
 class Registry(object):
     """A registry for `Opener` instances.
     """
 
-    def __init__(self, default_opener='osfs'):
+    def __init__(self, default_opener="osfs", load_extern=False):
+        # type: (Text, bool) -> None
         """Create a registry object.
 
         Arguments:
             default_opener (str, optional): The protocol to use, if one
                 is not supplied. The default is to use 'osfs', so that the
                 FS URL is treated as a system path if no protocol is given.
+            load_extern (bool, optional): Set to `True` to load openers from
+                PyFilesystem2 extensions. Defaults to `False`.
 
         """
         self.default_opener = default_opener
-        self._protocols = None
-
+        self.load_extern = load_extern
+        self._protocols = {}  # type: Dict[Text, Opener]
 
     def __repr__(self):
+        # type: () -> Text
         return "<fs-registry {!r}>".format(self.protocols)
+
+    def install(self, opener):
+        # type: (Union[Type[Opener], Opener, Callable[[], Opener]]) -> Opener
+        """Install an opener.
+
+        Arguments:
+            opener (`Opener`): an `Opener` instance, or a callable that
+                returns an opener instance.
+
+        Note:
+            May be used as a class decorator. For example::
+                registry = Registry()
+                @registry.install
+                class ArchiveOpener(Opener):
+                    protocols = ['zip', 'tar']
+        """
+        _opener = opener if isinstance(opener, Opener) else opener()
+        assert isinstance(_opener, Opener), "Opener instance required"
+        assert _opener.protocols, "must list one or more protocols"
+        for protocol in _opener.protocols:
+            self._protocols[protocol] = _opener
+        return _opener
 
     @property
     def protocols(self):
+        # type: () -> List[Text]
         """`list`: the list of supported protocols.
         """
-        if self._protocols is None:
-            self._protocols = [
+
+        _protocols = list(self._protocols)
+        if self.load_extern:
+            _protocols.extend(
                 entry_point.name
-                for entry_point in
-                pkg_resources.iter_entry_points('fs.opener')
-            ]
-        return self._protocols
+                for entry_point in pkg_resources.iter_entry_points("fs.opener")
+            )
+            _protocols = list(collections.OrderedDict.fromkeys(_protocols))
+        return _protocols
 
     def get_opener(self, protocol):
+        # type: (Text) -> Opener
         """Get the opener class associated to a given protocol.
 
         Arguments:
@@ -65,49 +110,53 @@ class Registry(object):
 
         """
         protocol = protocol or self.default_opener
-        entry_point = next(
-            pkg_resources.iter_entry_points('fs.opener', protocol),
-            None
-        )
 
-        if entry_point is None:
-            raise UnsupportedProtocol(
-                "protocol '{}' is not supported".format(protocol)
-            )
-
-        try:
-            opener = entry_point.load()
-        except Exception as exception:
-            six.raise_from(
-                EntryPointError(
-                    'could not load entry point; {}'.format(exception)
-                ),
-                exception
+        if self.load_extern:
+            entry_point = next(
+                pkg_resources.iter_entry_points("fs.opener", protocol), None
             )
         else:
-            if not issubclass(opener, Opener):
-                raise EntryPointError(
-                    'entry point did not return an opener'
+            entry_point = None
+
+        # If not entry point was loaded from the extensions, try looking
+        # into the registered protocols
+        if entry_point is None:
+            if protocol in self._protocols:
+                opener_instance = self._protocols[protocol]
+            else:
+                raise UnsupportedProtocol(
+                    "protocol '{}' is not supported".format(protocol)
                 )
 
-        try:
-            opener_instance = opener()
-        except Exception as exception:
-            six.raise_from(
-                EntryPointError(
-                    'could not instantiate opener; {}'.format(exception)
-                ),
-                exception
-            )
+        # If an entry point was found in an extension, attempt to load it
+        else:
+            try:
+                opener = entry_point.load()
+            except Exception as exception:
+                raise EntryPointError(
+                    "could not load entry point; {}".format(exception)
+                )
+            if not issubclass(opener, Opener):
+                raise EntryPointError("entry point did not return an opener")
+
+            try:
+                opener_instance = opener()
+            except Exception as exception:
+                raise EntryPointError(
+                    "could not instantiate opener; {}".format(exception)
+                )
 
         return opener_instance
 
-    def open(self,
-             fs_url,
-             writeable=True,
-             create=False,
-             cwd=".",
-             default_protocol='osfs'):
+    def open(
+        self,
+        fs_url,  # type: Text
+        writeable=True,  # type: bool
+        create=False,  # type: bool
+        cwd=".",  # type: Text
+        default_protocol="osfs",  # type: Text
+    ):
+        # type: (...) -> Tuple[FS, Text]
         """Open a filesystem from a FS URL.
 
         Returns a tuple of a filesystem object and a path. If there is
@@ -119,13 +168,13 @@ class Registry(object):
                 writeable.
             create (bool, optional): `True` if the filesystem should be
                 created if it does not exist.
-            cwd (str, optional): The current working directory, or `None`.
+            cwd (str): The current working directory.
 
         Returns:
             (FS, str): a tuple of ``(<filesystem>, <path from url>)``
 
         """
-        if '://' not in fs_url:
+        if "://" not in fs_url:
             # URL may just be a path
             fs_url = "{}://{}".format(default_protocol, fs_url)
 
@@ -135,21 +184,18 @@ class Registry(object):
 
         opener = self.get_opener(protocol)
 
-        open_fs = opener.open_fs(
-            fs_url,
-            parse_result,
-            writeable,
-            create,
-            cwd
-        )
+        open_fs = opener.open_fs(fs_url, parse_result, writeable, create, cwd)
         return open_fs, open_path
 
-    def open_fs(self,
-                fs_url,
-                writeable=False,
-                create=False,
-                cwd=".",
-                default_protocol='osfs'):
+    def open_fs(
+        self,
+        fs_url,  # type: Union[FS, Text]
+        writeable=False,  # type: bool
+        create=False,  # type: bool
+        cwd=".",  # type: Text
+        default_protocol="osfs",  # type: Text
+    ):
+        # type: (...) -> FS
         """Open a filesystem from a FS URL (ignoring the path component).
 
         Arguments:
@@ -158,8 +204,8 @@ class Registry(object):
                 be writeable.
             create (bool, optional): `True` if the filesystem should be
                 created if it does not exist.
-            cwd (str, optional): The current working directory (generally
-                only relevant for OS filesystems).
+            cwd (str): The current working directory (generally only
+                relevant for OS filesystems).
             default_protocol (str): The protocol to use if one is not
                 supplied in the FS URL (defaults to ``"osfs"``).
 
@@ -168,6 +214,7 @@ class Registry(object):
 
         """
         from ..base import FS
+
         if isinstance(fs_url, FS):
             _fs = fs_url
         else:
@@ -176,12 +223,19 @@ class Registry(object):
                 writeable=writeable,
                 create=create,
                 cwd=cwd,
-                default_protocol=default_protocol
+                default_protocol=default_protocol,
             )
         return _fs
 
     @contextlib.contextmanager
-    def manage_fs(self, fs_url, create=False, writeable=False, cwd='.'):  # noqa: D300,D301
+    def manage_fs(
+        self,
+        fs_url,  # type: Union[FS, Text]
+        create=False,  # type: bool
+        writeable=False,  # type: bool
+        cwd=".",  # type: Text
+    ):
+        # type: (...) -> Iterator[FS]
         """Get a context manager to open and close a filesystem.
 
         Arguments:
@@ -199,7 +253,7 @@ class Registry(object):
 
         Example:
             >>> def print_ls(list_fs):
-            ...     \"\"\"List a directory.\"\"\"
+            ...     '''List a directory.'''
             ...     with manage_fs(list_fs) as fs:
             ...         print(' '.join(fs.listdir()))
 
@@ -216,21 +270,15 @@ class Registry(object):
 
         """
         from ..base import FS
+
         if isinstance(fs_url, FS):
             yield fs_url
         else:
-            _fs = self.open_fs(
-                fs_url,
-                create=create,
-                writeable=writeable,
-                cwd=cwd
-            )
+            _fs = self.open_fs(fs_url, create=create, writeable=writeable, cwd=cwd)
             try:
                 yield _fs
-            except:
-                raise
             finally:
                 _fs.close()
 
 
-registry = Registry()
+registry = Registry(load_extern=True)

@@ -1,20 +1,27 @@
-.PHONY: readme
-readme:
-	pandoc --from=markdown --to=rst --output=README.rst README.md
 
 .PHONY: release
-release: readme
-	python setup.py sdist bdist_wheel upload
+release: cleandist
+	python3 setup.py sdist bdist_wheel
+	twine upload dist/*.whl dist/*.tar.gz
+
+.PHONY: cleandist
+cleandist:
+	rm -f dist/*.whl dist/*.tar.gz
+
+.PHONY: cleandocs
+cleandocs:
+	$(MAKE) -C docs clean
+
+.PHONY: clean
+clean: cleandist cleandocs
 
 .PHONY: test
 test:
 	nosetests --with-coverage --cover-package=fs -a "!slow" tests
-	rm .coverage
 
 .PHONY: slowtest
 slowtest:
 	nosetests --with-coverage --cover-erase --cover-package=fs tests
-	rm .coverage
 
 .PHONY: testall
 testall:
@@ -22,5 +29,9 @@ testall:
 
 .PHONY: docs
 docs:
-	cd docs && make html
+	$(MAKE) -C docs html
 	python -c "import os, webbrowser; webbrowser.open('file://' + os.path.abspath('./docs/build/html/index.html'))"
+
+.PHONY: typecheck
+typecheck:
+	mypy -p fs --config setup.cfg

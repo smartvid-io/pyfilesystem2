@@ -7,23 +7,21 @@ from __future__ import unicode_literals
 
 import collections
 import re
+import typing
 
+import six
 from six.moves.urllib.parse import parse_qs, unquote
 
 from .errors import ParseError
 
+if typing.TYPE_CHECKING:
+    from typing import Optional, Text
+
 
 _ParseResult = collections.namedtuple(
-    'ParseResult',
-    [
-        'protocol',
-        'username',
-        'password',
-        'resource',
-        'params',
-        'path'
-    ]
+    "ParseResult", ["protocol", "username", "password", "resource", "params", "path"]
 )
+
 
 class ParseResult(_ParseResult):
     """A named tuple containing fields of a parsed FS URL.
@@ -42,7 +40,8 @@ class ParseResult(_ParseResult):
     """
 
 
-_RE_FS_URL = re.compile(r'''
+_RE_FS_URL = re.compile(
+    r"""
 ^
 (.*?)
 :\/\/
@@ -55,10 +54,13 @@ _RE_FS_URL = re.compile(r'''
 (?:
 !(.*?)$
 )*$
-''', re.VERBOSE)
+""",
+    re.VERBOSE,
+)
 
 
 def parse_fs_url(fs_url):
+    # type: (Text) -> ParseResult
     """Parse a Filesystem URL and return a `ParseResult`.
 
     Arguments:
@@ -73,30 +75,23 @@ def parse_fs_url(fs_url):
     """
     match = _RE_FS_URL.match(fs_url)
     if match is None:
-        raise ParseError('{!r} is not a fs2 url'.format(fs_url))
+        raise ParseError("{!r} is not a fs2 url".format(fs_url))
 
     fs_name, credentials, url1, url2, path = match.groups()
-    if credentials:
-        username, _, password = credentials.partition(':')
+    if not credentials:
+        username = None  # type: Optional[Text]
+        password = None  # type: Optional[Text]
+        url = url2
+    else:
+        username, _, password = credentials.partition(":")
         username = unquote(username)
         password = unquote(password)
         url = url1
-    else:
-        username = None
-        password = None
-        url = url2
-    url, has_qs, _params = url.partition('?')
+    url, has_qs, qs = url.partition("?")
     resource = unquote(url)
     if has_qs:
-        params = parse_qs(_params, keep_blank_values=True)
-        params = {k:v[0] for k, v in params.items()}
+        _params = parse_qs(qs, keep_blank_values=True)
+        params = {k: unquote(v[0]) for k, v in six.iteritems(_params)}
     else:
         params = {}
-    return ParseResult(
-        fs_name,
-        username,
-        password,
-        resource,
-        params,
-        path
-    )
+    return ParseResult(fs_name, username, password, resource, params, path)

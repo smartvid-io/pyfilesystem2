@@ -2,8 +2,15 @@
 """`Opener` abstract base class.
 """
 
-import six
 import abc
+import typing
+
+import six
+
+if typing.TYPE_CHECKING:
+    from typing import List, Text
+    from ..base import FS
+    from .parse import ParseResult
 
 
 @six.add_metaclass(abc.ABCMeta)
@@ -15,13 +22,22 @@ class Opener(object):
 
     """
 
-    protocols = []
+    protocols = []  # type: List[Text]
 
     def __repr__(self):
+        # type: () -> Text
         return "<opener {!r}>".format(self.protocols)
 
     @abc.abstractmethod
-    def open_fs(self, fs_url, parse_result, writeable, create, cwd):
+    def open_fs(
+        self,
+        fs_url,  # type: Text
+        parse_result,  # type: ParseResult
+        writeable,  # type: bool
+        create,  # type: bool
+        cwd,  # type: Text
+    ):
+        # type: (...) -> FS
         """Open a filesystem object from a FS URL.
 
         Arguments:

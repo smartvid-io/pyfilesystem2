@@ -4,29 +4,26 @@ from __future__ import unicode_literals
 import io
 import os
 import six
-import gzip
-import tarfile
-import getpass
 import tarfile
 import tempfile
 import unittest
-import uuid
+import pytest
 
 from fs import tarfs
-from fs import errors
 from fs.enums import ResourceType
 from fs.compress import write_tar
 from fs.opener import open_fs
 from fs.opener.errors import NotWriteable
+from fs.errors import NoURL
 from fs.test import FSTestCases
 
 from .test_archives import ArchiveTestCases
 
 
 class TestWriteReadTarFS(unittest.TestCase):
-
     def setUp(self):
         fh, self._temp_path = tempfile.mkstemp()
+        os.close(fh)
 
     def tearDown(self):
         os.remove(self._temp_path)
@@ -34,7 +31,7 @@ class TestWriteReadTarFS(unittest.TestCase):
     def test_unicode_paths(self):
         # https://github.com/PyFilesystem/pyfilesystem2/issues/135
         with tarfs.TarFS(self._temp_path, write=True) as tar_fs:
-            tar_fs.settext("Файл", "some content")
+            tar_fs.writetext("Файл", "some content")
 
         with tarfs.TarFS(self._temp_path) as tar_fs:
             paths = list(tar_fs.walk.files())
@@ -60,7 +57,9 @@ class TestWriteTarFS(FSTestCases, unittest.TestCase):
 
     def destroy_fs(self, fs):
         fs.close()
+        os.remove(fs._tar_file)
         del fs._tar_file
+
 
 class TestWriteTarFSToFileobj(FSTestCases, unittest.TestCase):
     """
@@ -80,8 +79,8 @@ class TestWriteTarFSToFileobj(FSTestCases, unittest.TestCase):
         fs.close()
         del fs._tar_file
 
-class TestWriteGZippedTarFS(FSTestCases, unittest.TestCase):
 
+class TestWriteGZippedTarFS(FSTestCases, unittest.TestCase):
     def make_fs(self):
         fh, _tar_file = tempfile.mkstemp()
         os.close(fh)
@@ -91,21 +90,12 @@ class TestWriteGZippedTarFS(FSTestCases, unittest.TestCase):
 
     def destroy_fs(self, fs):
         fs.close()
+        os.remove(fs._tar_file)
         del fs._tar_file
 
-    def assert_is_bzip(self):
-        try:
-            tarfile.open(fs._tar_file, 'r:gz')
-        except tarfile.ReadError:
-            self.fail("{} is not a valid gz archive".format(fs._tar_file))
-        for other_comps in ['xz', 'bz2', '']:
-            with self.assertRaises(tarfile.ReadError):
-                tarfile.open(fs._tar_file,
-                             'r:{}'.format(other_comps))
 
-@unittest.skipIf(six.PY2, "Python2 does not support LZMA")
+@pytest.mark.skipif(six.PY2, reason="Python2 does not support LZMA")
 class TestWriteXZippedTarFS(FSTestCases, unittest.TestCase):
-
     def make_fs(self):
         fh, _tar_file = tempfile.mkstemp()
         os.close(fh)
@@ -121,16 +111,15 @@ class TestWriteXZippedTarFS(FSTestCases, unittest.TestCase):
 
     def assert_is_xz(self, fs):
         try:
-            tarfile.open(fs._tar_file, 'r:xz')
+            tarfile.open(fs._tar_file, "r:xz")
         except tarfile.ReadError:
             self.fail("{} is not a valid xz archive".format(fs._tar_file))
-        for other_comps in ['bz2', 'gz', '']:
+        for other_comps in ["bz2", "gz", ""]:
             with self.assertRaises(tarfile.ReadError):
-                tarfile.open(fs._tar_file,
-                             'r:{}'.format(other_comps))
+                tarfile.open(fs._tar_file, "r:{}".format(other_comps))
+
 
 class TestWriteBZippedTarFS(FSTestCases, unittest.TestCase):
-
     def make_fs(self):
         fh, _tar_file = tempfile.mkstemp()
         os.close(fh)
@@ -146,19 +135,20 @@ class TestWriteBZippedTarFS(FSTestCases, unittest.TestCase):
 
     def assert_is_bzip(self, fs):
         try:
-            tarfile.open(fs._tar_file, 'r:bz2')
+            tarfile.open(fs._tar_file, "r:bz2")
         except tarfile.ReadError:
             self.fail("{} is not a valid bz2 archive".format(fs._tar_file))
-        for other_comps in ['gz', '']:
+        for other_comps in ["gz", ""]:
             with self.assertRaises(tarfile.ReadError):
-                tarfile.open(fs._tar_file,
-                             'r:{}'.format(other_comps))
+                tarfile.open(fs._tar_file, "r:{}".format(other_comps))
+
 
 class TestReadTarFS(ArchiveTestCases, unittest.TestCase):
     """
     Test Reading tar files.
 
     """
+
     def compress(self, fs):
         fh, self._temp_path = tempfile.mkstemp()
         os.close(fh)
@@ -172,20 +162,78 @@ class TestReadTarFS(ArchiveTestCases, unittest.TestCase):
 
     def test_read_from_fileobject(self):
         try:
-            tarfs.TarFS(open(self._temp_path, 'rb'))
-        except:
+            tarfs.TarFS(open(self._temp_path, "rb"))
+        except Exception:
             self.fail("Couldn't open tarfs from fileobject")
 
     def test_read_from_filename(self):
         try:
             tarfs.TarFS(self._temp_path)
-        except:
+        except Exception:
             self.fail("Couldn't open tarfs from filename")
+
+    def test_read_non_existent_file(self):
+        fs = tarfs.TarFS(open(self._temp_path, "rb"))
+        # it has been very difficult to catch exception in __del__()
+        del fs._tar
+        try:
+            fs.close()
+        except AttributeError:
+            self.fail("Could not close tar fs properly")
+        except Exception:
+            self.fail("Strange exception in closing fs")
 
     def test_getinfo(self):
         super(TestReadTarFS, self).test_getinfo()
-        top = self.fs.getinfo('top.txt', ['tar'])
-        self.assertTrue(top.get('tar', 'is_file'))
+        top = self.fs.getinfo("top.txt", ["tar"])
+        self.assertTrue(top.get("tar", "is_file"))
+
+    def test_geturl_for_fs(self):
+        test_fixtures = [
+            # test_file, expected
+            ["foo/bar/egg/foofoo", "foo/bar/egg/foofoo"],
+            ["foo/bar egg/foo foo", "foo/bar%20egg/foo%20foo"],
+        ]
+        tar_file_path = self._temp_path.replace("\\", "/")
+        for test_file, expected_file in test_fixtures:
+            expected = "tar://{tar_file_path}!/{file_inside_tar}".format(
+                tar_file_path=tar_file_path, file_inside_tar=expected_file
+            )
+            self.assertEqual(self.fs.geturl(test_file, purpose="fs"), expected)
+
+    def test_geturl_for_fs_but_file_is_binaryio(self):
+        self.fs._file = six.BytesIO()
+        self.assertRaises(NoURL, self.fs.geturl, "test", "fs")
+
+    def test_geturl_for_download(self):
+        test_file = "foo/bar/egg/foofoo"
+        with self.assertRaises(NoURL):
+            self.fs.geturl(test_file)
+
+
+class TestBrokenPaths(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmpfs = open_fs("temp://tarfstest")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmpfs.close()
+
+    def setUp(self):
+        self.tempfile = self.tmpfs.open("test.tar", "wb+")
+        with tarfile.open(mode="w", fileobj=self.tempfile) as tf:
+            tf.addfile(tarfile.TarInfo("."), io.StringIO())
+            tf.addfile(tarfile.TarInfo("../foo.txt"), io.StringIO())
+        self.tempfile.seek(0)
+        self.fs = tarfs.TarFS(self.tempfile)
+
+    def tearDown(self):
+        self.fs.close()
+        self.tempfile.close()
+
+    def test_listdir(self):
+        self.assertEqual(self.fs.listdir("/"), [])
 
 
 class TestImplicitDirectories(unittest.TestCase):
@@ -201,11 +249,11 @@ class TestImplicitDirectories(unittest.TestCase):
         cls.tmpfs.close()
 
     def setUp(self):
-        self.tempfile = self.tmpfs.open('test.tar', 'wb+')
+        self.tempfile = self.tmpfs.open("test.tar", "wb+")
         with tarfile.open(mode="w", fileobj=self.tempfile) as tf:
             tf.addfile(tarfile.TarInfo("foo/bar/baz/spam.txt"), io.StringIO())
-            tf.addfile(tarfile.TarInfo("foo/eggs.bin"), io.StringIO())
-            tf.addfile(tarfile.TarInfo("foo/yolk/beans.txt"), io.StringIO())
+            tf.addfile(tarfile.TarInfo("./foo/eggs.bin"), io.StringIO())
+            tf.addfile(tarfile.TarInfo("./foo/yolk/beans.txt"), io.StringIO())
             info = tarfile.TarInfo("foo/yolk")
             info.type = tarfile.DIRTYPE
             tf.addfile(info, io.BytesIO())
@@ -253,16 +301,12 @@ class TestImplicitDirectories(unittest.TestCase):
         self.assertIs(info.type, ResourceType.directory)
 
 
-
-
 class TestReadTarFSMem(TestReadTarFS):
-
     def make_source_fs(self):
-        return open_fs('mem://')
+        return open_fs("mem://")
 
 
 class TestOpener(unittest.TestCase):
-
     def test_not_writeable(self):
         with self.assertRaises(NotWriteable):
-            open_fs('tar://foo.zip', writeable=True)
+            open_fs("tar://foo.zip", writeable=True)

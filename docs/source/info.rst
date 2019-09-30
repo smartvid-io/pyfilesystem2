@@ -17,7 +17,7 @@ Here's an example of retrieving file information::
 
     >>> from fs.osfs import OSFS
     >>> fs = OSFS('.')
-    >>> fs.settext('example.txt', 'Hello, World!')
+    >>> fs.writetext('example.txt', 'Hello, World!')
     >>> info = fs.getinfo('example.txt', namespaces=['details'])
     >>> info.name
     'example.txt'
@@ -88,13 +88,13 @@ size             int                 Number of bytes used to store the
                                      the overhead (in bytes) used to store
                                      the directory entry.
 type             ResourceType        Resource type, one of the values
-                                     defined in :class:`~fs.ResourceType`.
+                                     defined in :class:`~fs.enums.ResourceType`.
 ================ =================== ==========================================
 
 The time values (``accessed_time``, ``created_time`` etc.) may be
 ``None`` if the filesystem doesn't store that information. The ``size``
 and ``type`` keys are guaranteed to be available, although ``type`` may
-be :attr:`~fs.ResourceType.unknown` if the filesystem is unable to
+be :attr:`~fs.enums.ResourceType.unknown` if the filesystem is unable to
 retrieve the resource type.
 
 Access Namespace

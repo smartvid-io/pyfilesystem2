@@ -3,7 +3,14 @@
 
 from __future__ import unicode_literals
 
+import typing
+
+if typing.TYPE_CHECKING:
+    from typing import Text, Tuple
+
+
 def make_repr(class_name, *args, **kwargs):
+    # type: (Text, *object, **Tuple[object, object]) -> Text
     """Generate a repr string.
 
     Positional arguments should be the positional arguments used to
@@ -24,9 +31,11 @@ def make_repr(class_name, *args, **kwargs):
 
     """
     arguments = [repr(arg) for arg in args]
-    arguments.extend([
-        "{}={!r}".format(name, value)
-        for name, (value, default) in sorted(kwargs.items())
-        if value != default
-    ])
-    return "{}({})".format(class_name, ', '.join(arguments))
+    arguments.extend(
+        [
+            "{}={!r}".format(name, value)
+            for name, (value, default) in sorted(kwargs.items())
+            if value != default
+        ]
+    )
+    return "{}({})".format(class_name, ", ".join(arguments))

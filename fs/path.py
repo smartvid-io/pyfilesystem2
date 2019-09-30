@@ -12,8 +12,12 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import re
+import typing
 
 from .errors import IllegalBackReference
+
+if typing.TYPE_CHECKING:
+    from typing import List, Text, Tuple
 
 
 __all__ = [
@@ -40,13 +44,11 @@ __all__ = [
     "splitext",
 ]
 
-_requires_normalization = re.compile(
-    r'(^|/)\.\.?($|/)|//',
-    re.UNICODE
-).search
+_requires_normalization = re.compile(r"(^|/)\.\.?($|/)|//", re.UNICODE).search
 
 
 def normpath(path):
+    # type: (Text) -> Text
     """Normalize a path.
 
     This function simplifies a path by collapsing back-references
@@ -64,33 +66,32 @@ def normpath(path):
         >>> normpath("foo/../../bar")
         Traceback (most recent call last)
             ...
-        IllegalBackReference: Too many backrefs in 'foo/../../bar'
+        IllegalBackReference: path 'foo/../../bar' contains back-references outside of filesystem"
 
-    """
-    if path in '/':
+    """  # noqa: E501
+    if path in "/":
         return path
 
     # An early out if there is no need to normalize this path
     if not _requires_normalization(path):
-        return path.rstrip('/')
+        return path.rstrip("/")
 
-    prefix = '/' if path.startswith('/') else ''
-    components = []
+    prefix = "/" if path.startswith("/") else ""
+    components = []  # type: List[Text]
     try:
-        for component in path.split('/'):
-            if component in '..':  # True for '..', '.', and ''
-                if component == '..':
+        for component in path.split("/"):
+            if component in "..":  # True for '..', '.', and ''
+                if component == "..":
                     components.pop()
             else:
                 components.append(component)
     except IndexError:
-        raise IllegalBackReference(
-            "Too many backrefs in '{}'".format(path)
-        )
-    return prefix + '/'.join(components)
+        raise IllegalBackReference(path)
+    return prefix + "/".join(components)
 
 
 def iteratepath(path):
+    # type: (Text) -> List[Text]
     """Iterate over the individual components of a path.
 
     Arguments:
@@ -107,15 +108,16 @@ def iteratepath(path):
     path = relpath(normpath(path))
     if not path:
         return []
-    return path.split('/')
+    return path.split("/")
 
 
 def recursepath(path, reverse=False):
+    # type: (Text, bool) -> List[Text]
     """Get intermediate paths from the root to the given path.
 
     Arguments:
         path (str): A PyFilesystem path
-        reverse (bool, optional): Reverses the order of the paths
+        reverse (bool): Reverses the order of the paths
             (default `False`).
 
     Returns:
@@ -126,19 +128,19 @@ def recursepath(path, reverse=False):
         ['/', '/a', '/a/b', '/a/b/c']
 
     """
-    if path in '/':
-        return ['/']
+    if path in "/":
+        return ["/"]
 
-    path = abspath(normpath(path)) + '/'
+    path = abspath(normpath(path)) + "/"
 
-    paths = ['/']
+    paths = ["/"]
     find = path.find
     append = paths.append
     pos = 1
     len_path = len(path)
 
     while pos < len_path:
-        pos = find('/', pos)
+        pos = find("/", pos)
         append(path[:pos])
         pos += 1
 
@@ -148,6 +150,7 @@ def recursepath(path, reverse=False):
 
 
 def isabs(path):
+    # type: (Text) -> bool
     """Check if a path is an absolute path.
 
     Arguments:
@@ -158,10 +161,11 @@ def isabs(path):
 
     """
     # Somewhat trivial, but helps to make code self-documenting
-    return path.startswith('/')
+    return path.startswith("/")
 
 
 def abspath(path):
+    # type: (Text) -> Text
     """Convert the given path to an absolute path.
 
     Since FS objects have no concept of a *current directory*, this
@@ -175,12 +179,13 @@ def abspath(path):
         str: An absolute path.
 
     """
-    if not path.startswith('/'):
-        return '/' + path
+    if not path.startswith("/"):
+        return "/" + path
     return path
 
 
 def relpath(path):
+    # type: (Text) -> Text
     """Convert the given path to a relative path.
 
     This is the inverse of `abspath`, stripping a leading ``'/'`` from
@@ -197,10 +202,11 @@ def relpath(path):
         'a/b'
 
     """
-    return path.lstrip('/')
+    return path.lstrip("/")
 
 
 def join(*paths):
+    # type: (*Text) -> Text
     """Join any number of paths together.
 
     Arguments:
@@ -219,10 +225,10 @@ def join(*paths):
 
     """
     absolute = False
-    relpaths = []
+    relpaths = []  # type: List[Text]
     for p in paths:
         if p:
-            if p[0] == '/':
+            if p[0] == "/":
                 del relpaths[:]
                 absolute = True
             relpaths.append(p)
@@ -234,6 +240,7 @@ def join(*paths):
 
 
 def combine(path1, path2):
+    # type: (Text, Text) -> Text
     """Join two paths together.
 
     This is faster than :func:`~fs.path.join`, but only works when the
@@ -254,10 +261,11 @@ def combine(path1, path2):
     """
     if not path1:
         return path2.lstrip()
-    return "{}/{}".format(path1.rstrip('/'), path2.lstrip('/'))
+    return "{}/{}".format(path1.rstrip("/"), path2.lstrip("/"))
 
 
 def parts(path):
+    # type: (Text) -> List[Text]
     """Split a path in to its component parts.
 
     Arguments:
@@ -272,15 +280,16 @@ def parts(path):
 
     """
     _path = normpath(path)
-    components = _path.strip('/')
+    components = _path.strip("/")
 
-    _parts = ['/' if _path.startswith('/') else './']
+    _parts = ["/" if _path.startswith("/") else "./"]
     if components:
-        _parts += components.split('/')
+        _parts += components.split("/")
     return _parts
 
 
 def split(path):
+    # type: (Text) -> Tuple[Text, Text]
     """Split a path into (head, tail) pair.
 
     This function splits a path into a pair (head, tail) where 'tail' is
@@ -301,13 +310,14 @@ def split(path):
         ('/foo/bar', 'baz')
 
     """
-    if '/' not in path:
-        return ('', path)
-    split = path.rsplit('/', 1)
-    return (split[0] or '/', split[1])
+    if "/" not in path:
+        return ("", path)
+    split = path.rsplit("/", 1)
+    return (split[0] or "/", split[1])
 
 
 def splitext(path):
+    # type: (Text) -> Tuple[Text, Text]
     """Split the extension from the path.
 
     Arguments:
@@ -321,17 +331,22 @@ def splitext(path):
         ('baz', '.txt')
         >>> splitext('foo/bar/baz.txt')
         ('foo/bar/baz', '.txt')
+        >>> splitext('foo/bar/.foo')
+        ('foo/bar/.foo', '')
 
     """
     parent_path, pathname = split(path)
-    if '.' not in pathname:
-        return path, ''
-    pathname, ext = pathname.rsplit('.', 1)
+    if pathname.startswith(".") and pathname.count(".") == 1:
+        return path, ""
+    if "." not in pathname:
+        return path, ""
+    pathname, ext = pathname.rsplit(".", 1)
     path = join(parent_path, pathname)
-    return path, '.' + ext
+    return path, "." + ext
 
 
 def isdotfile(path):
+    # type: (Text) -> bool
     """Detect if a path references a dot file.
 
     Arguments:
@@ -349,10 +364,11 @@ def isdotfile(path):
         False
 
     """
-    return basename(path).startswith('.')
+    return basename(path).startswith(".")
 
 
 def dirname(path):
+    # type: (Text) -> Text
     """Return the parent directory of a path.
 
     This is always equivalent to the 'head' component of the value
@@ -377,6 +393,7 @@ def dirname(path):
 
 
 def basename(path):
+    # type: (Text) -> Text
     """Return the basename of the resource referenced by a path.
 
     This is always equivalent to the 'tail' component of the value
@@ -401,6 +418,7 @@ def basename(path):
 
 
 def issamedir(path1, path2):
+    # type: (Text, Text) -> bool
     """Check if two paths reference a resource in the same directory.
 
     Arguments:
@@ -421,6 +439,7 @@ def issamedir(path1, path2):
 
 
 def isbase(path1, path2):
+    # type: (Text, Text) -> bool
     """Check if ``path1`` is a base of ``path2``.
 
     Arguments:
@@ -437,10 +456,11 @@ def isbase(path1, path2):
     """
     _path1 = forcedir(abspath(path1))
     _path2 = forcedir(abspath(path2))
-    return _path2.startswith(_path1) # longer one is child
+    return _path2.startswith(_path1)  # longer one is child
 
 
 def isparent(path1, path2):
+    # type: (Text, Text) -> bool
     """Check if ``path1`` is a parent directory of ``path2``.
 
     Arguments:
@@ -474,6 +494,7 @@ def isparent(path1, path2):
 
 
 def forcedir(path):
+    # type: (Text) -> Text
     """Ensure the path ends with a trailing forward slash.
 
     Arguments:
@@ -488,15 +509,16 @@ def forcedir(path):
         >>> forcedir("foo/bar/")
         'foo/bar/'
         >>> forcedir("foo/spam.txt")
-        'foo/spam.txt'
+        'foo/spam.txt/'
 
     """
-    if not path.endswith('/'):
-        return path + '/'
+    if not path.endswith("/"):
+        return path + "/"
     return path
 
 
 def frombase(path1, path2):
+    # type: (Text, Text) -> Text
     """Get the final path of ``path2`` that isn't in ``path1``.
 
     Arguments:
@@ -513,10 +535,11 @@ def frombase(path1, path2):
     """
     if not isparent(path1, path2):
         raise ValueError("path1 must be a prefix of path2")
-    return path2[len(path1):]
+    return path2[len(path1) :]
 
 
 def relativefrom(base, path):
+    # type: (Text, Text) -> Text
     """Return a path relative from a given base path.
 
     Insert backrefs as appropriate to reach the path from the base.
@@ -532,22 +555,23 @@ def relativefrom(base, path):
     '../../baz/index.html'
 
     """
-    base = list(iteratepath(base))
-    path = list(iteratepath(path))
+    base_parts = list(iteratepath(base))
+    path_parts = list(iteratepath(path))
 
     common = 0
-    for component_a, component_b in zip(base, path):
+    for component_a, component_b in zip(base_parts, path_parts):
         if component_a != component_b:
             break
         common += 1
 
-    return '/'.join(['..'] * (len(base) - common) + path[common:])
+    return "/".join([".."] * (len(base_parts) - common) + path_parts[common:])
 
 
-_WILD_CHARS = frozenset('*?[]!{}')
+_WILD_CHARS = frozenset("*?[]!{}")
 
 
 def iswildcard(path):
+    # type: (Text) -> bool
     """Check if a path ends with a wildcard.
 
     Arguments:

@@ -4,18 +4,11 @@ from __future__ import unicode_literals
 
 import unittest
 
-try:
-    import mock
-except ImportError:
-    from unittest import mock
-
-
 from fs.base import FS
 from fs import errors
 
 
-class TestFS(FS):
-
+class DummyFS(FS):
     def getinfo(self, path, namespaces=None):
         pass
 
@@ -40,32 +33,33 @@ class TestFS(FS):
 
 class TestBase(unittest.TestCase):
     def setUp(self):
-        self.fs = TestFS()
+        self.fs = DummyFS()
 
     def test_validatepath(self):
         """Test validatepath method."""
         with self.assertRaises(TypeError):
-            self.fs.validatepath(b'bytes')
+            self.fs.validatepath(b"bytes")
 
-        self.fs._meta['invalid_path_chars'] = 'Z'
+        self.fs._meta["invalid_path_chars"] = "Z"
         with self.assertRaises(errors.InvalidCharsInPath):
-            self.fs.validatepath('Time for some ZZZs')
+            self.fs.validatepath("Time for some ZZZs")
 
-        self.fs.validatepath('fine')
-        self.fs.validatepath('good.fine')
+        self.fs.validatepath("fine")
+        self.fs.validatepath("good.fine")
 
-        self.fs._meta['invalid_path_chars'] = ''
-        self.fs.validatepath('Time for some ZZZs')
+        self.fs._meta["invalid_path_chars"] = ""
+        self.fs.validatepath("Time for some ZZZs")
 
         def mock_getsyspath(path):
             return path
+
         self.fs.getsyspath = mock_getsyspath
 
-        self.fs._meta['max_sys_path_length'] = 10
+        self.fs._meta["max_sys_path_length"] = 10
 
-        self.fs.validatepath('0123456789')
-        self.fs.validatepath('012345678')
-        self.fs.validatepath('01234567')
+        self.fs.validatepath("0123456789")
+        self.fs.validatepath("012345678")
+        self.fs.validatepath("01234567")
 
         with self.assertRaises(errors.InvalidPath):
-            self.fs.validatepath('0123456789A')
+            self.fs.validatepath("0123456789A")

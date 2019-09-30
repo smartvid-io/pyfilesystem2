@@ -2,23 +2,28 @@
 """
 # Adapted from https://hg.python.org/cpython/file/2.7/Lib/fnmatch.py
 
-from __future__ import unicode_literals
+from __future__ import unicode_literals, print_function
 
 import re
+import typing
 from functools import partial
 
 from .lrucache import LRUCache
 
-_MAXCACHE = 1000
-_PATTERN_CACHE = LRUCache(_MAXCACHE)
+if typing.TYPE_CHECKING:
+    from typing import Callable, Iterable, Text, Tuple, Pattern
+
+
+_PATTERN_CACHE = LRUCache(1000)  # type: LRUCache[Tuple[Text, bool], Pattern]
 
 
 def match(pattern, name):
+    # type: (Text, Text) -> bool
     """Test whether a name matches a wildcard pattern.
 
     Arguments:
         pattern (str): A wildcard pattern, e.g. ``"*.py"``.
-        name (bool): A filename.
+        name (str): A filename.
 
     Returns:
         bool: `True` if the filename matches the pattern.
@@ -27,12 +32,13 @@ def match(pattern, name):
     try:
         re_pat = _PATTERN_CACHE[(pattern, True)]
     except KeyError:
-        res = _translate(pattern)
+        res = "(?ms)" + _translate(pattern) + r'\Z'
         _PATTERN_CACHE[(pattern, True)] = re_pat = re.compile(res)
     return re_pat.match(name) is not None
 
 
 def imatch(pattern, name):
+    # type: (Text, Text) -> bool
     """Test whether a name matches a wildcard pattern (case insensitive).
 
     Arguments:
@@ -46,13 +52,13 @@ def imatch(pattern, name):
     try:
         re_pat = _PATTERN_CACHE[(pattern, False)]
     except KeyError:
-        res = _translate(pattern, case_sensitive=False)
-        _PATTERN_CACHE[(pattern, False)] = re_pat =\
-            re.compile(res, re.IGNORECASE)
+        res = "(?ms)" + _translate(pattern, case_sensitive=False) + r'\Z'
+        _PATTERN_CACHE[(pattern, False)] = re_pat = re.compile(res, re.IGNORECASE)
     return re_pat.match(name) is not None
 
 
 def match_any(patterns, name):
+    # type: (Iterable[Text], Text) -> bool
     """Test if a name matches any of a list of patterns.
 
     Will return `True` if ``patterns`` is an empty list.
@@ -72,6 +78,7 @@ def match_any(patterns, name):
 
 
 def imatch_any(patterns, name):
+    # type: (Iterable[Text], Text) -> bool
     """Test if a name matches any of a list of patterns (case insensitive).
 
     Will return `True` if ``patterns`` is an empty list.
@@ -91,12 +98,13 @@ def imatch_any(patterns, name):
 
 
 def get_matcher(patterns, case_sensitive):
+    # type: (Iterable[Text], bool) -> Callable[[Text], bool]
     """Get a callable that matches names against the given patterns.
 
     Arguments:
         patterns (list): A list of wildcard pattern. e.g. ``["*.py",
             "*.pyc"]``
-        case_sensitive (bool): If `True`, then the callable will be case
+        case_sensitive (bool): If ``True``, then the callable will be case
             sensitive, otherwise it will be case insensitive.
 
     Returns:
@@ -121,14 +129,15 @@ def get_matcher(patterns, case_sensitive):
 
 
 def _translate(pattern, case_sensitive=True):
+    # type: (Text, bool) -> Text
     """Translate a wildcard pattern to a regular expression.
 
     There is no way to quote meta-characters.
 
     Arguments:
         pattern (str): A wildcard pattern.
-        case_sensitive (bool, optional): Set to `False` to use a
-            case insensitive regex (default `True`).
+        case_sensitive (bool): Set to `False` to use a case
+            insensitive regex (default `True`).
 
     Returns:
         str: A regex equivalent to the given pattern.
@@ -137,32 +146,32 @@ def _translate(pattern, case_sensitive=True):
     if not case_sensitive:
         pattern = pattern.lower()
     i, n = 0, len(pattern)
-    res = ''
+    res = ""
     while i < n:
         c = pattern[i]
         i = i + 1
-        if c == '*':
-            res = res + '.*'
-        elif c == '?':
-            res = res + '.'
-        elif c == '[':
+        if c == "*":
+            res = res + "[^/]*"
+        elif c == "?":
+            res = res + "."
+        elif c == "[":
             j = i
-            if j < n and pattern[j] == '!':
+            if j < n and pattern[j] == "!":
                 j = j + 1
-            if j < n and pattern[j] == ']':
+            if j < n and pattern[j] == "]":
                 j = j + 1
-            while j < n and pattern[j] != ']':
+            while j < n and pattern[j] != "]":
                 j = j + 1
             if j >= n:
-                res = res + '\\['
+                res = res + "\\["
             else:
-                stuff = pattern[i:j].replace('\\', '\\\\')
+                stuff = pattern[i:j].replace("\\", "\\\\")
                 i = j + 1
-                if stuff[0] == '!':
-                    stuff = '^' + stuff[1:]
-                elif stuff[0] == '^':
-                    stuff = '\\' + stuff
-                res = '%s[%s]' % (res, stuff)
+                if stuff[0] == "!":
+                    stuff = "^" + stuff[1:]
+                elif stuff[0] == "^":
+                    stuff = "\\" + stuff
+                res = "%s[%s]" % (res, stuff)
         else:
             res = res + re.escape(c)
-    return res + '\Z(?ms)'
+    return res
