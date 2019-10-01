@@ -12,6 +12,7 @@ import abc
 import hashlib
 import itertools
 import os
+import sys
 import threading
 import time
 import typing
@@ -59,6 +60,26 @@ if typing.TYPE_CHECKING:
     _T = typing.TypeVar("_T", bound="FS")
     _OpendirFactory = Callable[[_T, Text], SubFS[_T]]
 
+from typing import TextIO, BinaryIO, IO
+from typing import (
+    Any,
+    BinaryIO,
+    Callable,
+    Collection,
+    Dict,
+    IO,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Text,
+    Tuple,
+    Type,
+    Union,
+)
+Checked = Optional[str]
+Progress = Optional[Union[bool, Callable]]
 
 __all__ = ["FS"]
 
@@ -1646,3 +1667,286 @@ class FS(object):
                     break
                 hash_object.update(chunk)
         return hash_object.hexdigest()
+
+    """
+        Makes sure it is easy to do the right thing
+    
+        path of - is specially treated as an abbreviation for stdin and stdout
+        path of -- is stderr
+    """
+
+    def check_directory(self, path: str, kind: str = "") -> Checked:
+        """
+        Error message for directory
+
+        :param path: FS path
+        :param kind: optional message qualifier
+        :return: None or error message
+        """
+        if kind:
+            kind = "%s " % kind
+        if not self.exists(path):
+            return "The %sdirectory '%s' does not exist in %s" % (kind, path, self)
+        if not self.isdir(path):
+            return "'%s' is not a %sdirectory in %s" % (path, kind, self)
+        return None
+
+    # Produce better error messages for bad input file paths
+    def check_input(self, path: str, kind: str = "") -> Checked:
+        """
+        Error message for input file
+
+        :param path: FS path
+        :param kind: optional message qualifier
+        :return: None or error message
+        """
+        if path == "-":
+            return None
+        if kind:
+            kind = "%s " % kind
+        if not self.exists(path):
+            return "The %sinput file '%s' does not exist in %s" % (kind, path, self)
+        if not self.isfile(path):
+            return "'%s' is not a %sfile in %s" % (path, kind, self)
+        return None
+
+    def open_input(self, path: str, kind: str = "", mode: str = "r", **kwargs) -> IO:
+        """
+        Open a FS path for input (default mode "rb"), with special handling for stdin
+
+        :param path: FS path to existing file
+        :param kind: qualifier for error message
+        :param kwargs: pass through to open
+        :return: strean
+        """
+        error = self.check_input(path, kind)
+        if error:
+            raise ValueError(error)
+        if path == "-":
+            return sys.stdin
+        return self.open(path, mode, **kwargs)
+
+    def open_input_bytes(self, path: str, kind: str = "", **kwargs) -> IO:
+        return self.open_input(path, mode="rb", kind=kind, **kwargs)
+
+    # protects from closing stdin
+    def close_input(self, f: IO):
+        """
+        Close an opened file with special handling for stdin
+
+        :param f: stream
+        :return: None
+        """
+        if f == sys.stdin:
+            return
+        f.close()
+
+    # And for bad output paths
+    def check_output(self, path: str, mode: str = "w", kind: str = "") -> Checked:
+        if path in ["-", "--"]:
+            return None
+        if kind:
+            kind = "%s " % kind
+        dirname, basename = os.path.split(path)
+        if dirname and not self.exists(dirname):
+            return "The directory '%s' for %soutput file '%s' does not exist in %s" % (dirname, kind, path, self)
+        if basename and self.isdir(basename):
+            return "No filename for %soutput file found in '%s' in %s" % (kind, path, self)
+        if not basename:
+            return "No filename for %soutput file found in '%s' in %s" % (kind, path, self)
+        return None
+
+    def open_output(self, path: str, mode: str = "w", kind: str = "", **kwargs) -> IO:
+        """
+        Open a FS path for output (default mode "w"), with special handling for stdout/stderr
+
+        :param path: FS path to existing file
+        :param kind: qualifier for error message
+        :param kwargs: pass through to open
+        :return: stream
+        """
+        error = self.check_output(path, mode, kind)
+        if error:
+            raise ValueError(error)
+        if path == "-":
+            return sys.stdout
+        if path == "--":
+            return sys.stderr
+        return self.open(path, mode, **kwargs)
+
+    def open_output_bytes(self, path: str, kind: str = "", **kwargs) -> IO:
+        return self.open_output(path, mode="wb", kind=kind, **kwargs)
+
+    # protects from closing stdout and stderr
+    def close_output(self, f: IO):
+        """
+        Close an opened file with special handling for stdout/stderr
+
+        :param f: stream
+        :return: None
+        """
+        if f in [sys.stdout, sys.stderr]:
+            return
+        f.close()
+
+    def path(self, path: str):
+        """
+        Turns a relative path in this file system to a fully qualified path.
+        Given a file in an S3 Bucket, produce a URL
+        :param path:
+        :return: absolute path
+        """
+        return str(self.getsyspath(path))
+
+    def rel_path(self, path: str, root: Optional[str] = None) -> str:
+        """
+        Returns a path relative to FS root
+
+        :param path: Path with root removed
+        :param root: if not None, use FS root, else a filepath prefix
+        :return: a relative path
+        """
+        if root:
+            sp = root
+        else:
+            sp = self.path("")
+        if path.startswith(sp):
+            path = path[len(sp):]
+            if path.startswith("/"):
+                path = path[1:]
+        return path
+
+    def reroot(self, prefix: str, path: str) -> str:
+        """
+        Strip prefix and and make an absolute path relative to FS
+
+        :param prefix: strip from path
+        :param path: system path
+        :return: FS path
+        """
+        return self.path(self.rel_path(path, prefix))
+
+    def __call__(self, path: str) -> str:
+        """
+        Convenience function for fs.path()
+
+        :param path: FS path
+        :return: absolute path
+        """
+        return self.path(path)
+
+    def url(self, path: str) -> str:
+        """
+        Gets full URL for FS path
+
+        :param path: FS path
+        :return: URL
+        """
+        return str(self.getpathurl(path))
+
+    def safe_remove(self, path: str) -> Optional[str]:
+        """
+        Delete a file only if it exists
+
+        :param path: FS path
+        :return: None
+        """
+        if not self.exists(path) or not self.isfile(path):
+            return None
+        return self.remove(path)
+
+    def walkfiles(self, *args, **kwargs):
+        for path in self.walk.files(*args, **kwargs):
+            yield path
+
+    def snapshot(self, stream: Union[str, BinaryIO], progress: Any = None):
+        """
+        Make a copy of this FS to a .zip file
+
+        :param stream: stream or name of file that gets zip contents
+        :param progress: optional callback to show progress
+        :return: None
+        """
+        from .zipfs import ZipFS
+        zfs = ZipFS(stream, "w")
+        for path in self.walkfiles():
+            self.fetch_file(path, zfs, path, progress=progress, makedirs=True)
+        zfs.close()
+
+    def basename(self, path: str) -> str:
+        """
+        Get filebase.ext from /path/path/filebase.ext
+
+        :param path: FS path
+        :return: name and ext
+        """
+        return os.path.basename(path)
+
+    # Get filebase from /path/path/filebase.ext
+    def filebase(self, path: str) -> str:
+        """
+        Get filebase from /path/path/filebase.ext
+
+        :param path: FS path
+        :return: name without path or extension
+        """
+        basename = self.basename(path)
+        filebase, _ = os.path.splitext(basename)
+        return filebase
+
+    def newext(self, path: str, newext: str) -> str:
+        """
+        Change .ext in FS path`
+
+        :param path: FS path
+        :param newext: new .ext
+        :return: FS path
+        """
+        path, _ = os.path.splitext(path)
+        return "%s.%s" % (path, newext)
+
+    def get_digest(self, path: str) -> str:
+        import hashlib
+        BLOCKSIZE = 64 * 1024
+        hasher = hashlib.md5()
+        inf = self.open_input_bytes(path)
+        bytes = inf.read(BLOCKSIZE)
+        while bytes:
+            hasher.update(bytes)
+            bytes = inf.read(BLOCKSIZE)
+        return hasher.hexdigest()
+
+    def fetch_file(self, src_path: str, dst_fs: 'FS', dst_path: str, overwrite: bool = True, chunk_size: int = 64 * 1024,
+                   progress: Callable = None, makedirs: bool = False) -> str:
+        """Copy a file from this fs, with optional progress callback, computing digest as we go :-)"""
+        import hashlib
+        hasher = hashlib.md5()
+        if not overwrite and dst_fs.exists(dst_path):
+            raise errors.DestinationExists(dst_path)
+        folders, name = os.path.split(dst_path)
+        if folders:
+            folders_exist = dst_fs.isdir(folders) if folders else True
+            if not makedirs and not folders_exist:
+                raise errors.DirectoryExpected(folders)
+            if makedirs and not folders_exist:
+                dst_fs.makeopendir(folders, recursive=True)
+        src = None
+        dst = None
+        try:
+            src = self.open_input_bytes(src_path)
+            dst = dst_fs.open_output_bytes(dst_path)
+            write = dst.write
+            read = src.read
+            chunk = read(chunk_size)
+            while chunk:
+                hasher.update(chunk)
+                write(chunk)
+                if progress:
+                    progress(len(chunk))
+                chunk = read(chunk_size)
+        finally:
+            if src is not None:
+                src.close()
+            if dst is not None:
+                dst.close()
+        return hasher.hexdigest()
