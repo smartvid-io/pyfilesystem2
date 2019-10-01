@@ -1950,3 +1950,22 @@ class FS(object):
             if dst is not None:
                 dst.close()
         return hasher.hexdigest()
+
+    def makeopendir(self, path, recursive=False):
+        """makes a directory (if it doesn't exist) and returns an FS object for
+        the newly created directory.
+
+        :param path: path to the new directory
+        :param recursive: if True any intermediate directories will be created
+
+        :return: the opened dir
+        :rtype: an FS object
+
+        """
+        with self._lock:
+            if recursive:
+                self.makedirs(path, recreate=True)
+            else:
+                self.makedir(path, recreate=True)
+            dir_fs = self.opendir(path)
+            return dir_fs
